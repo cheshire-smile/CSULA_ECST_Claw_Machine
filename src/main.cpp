@@ -1,3 +1,7 @@
+//This code was created as part of the SMART internship at CSULA ECST maker space Summer of 2024
+//Author: Cosme A. Lavalle
+
+
 #include <Arduino.h>
 #include <DRV8834.h>
 #include <Servo.h>
