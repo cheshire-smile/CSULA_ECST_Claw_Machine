@@ -239,8 +239,8 @@ void setupPins() {
     digitalWrite(X_SLEEP_PIN, LOW);
     digitalWrite(Y_SLEEP_PIN, LOW);
 
-    stepperX.begin(MOTOR_RPM);
-    stepperY.begin(MOTOR_RPM);
+    //stepperX.begin(MOTOR_RPM);
+    //stepperY.begin(MOTOR_RPM);
 }
 
 // Boot-up sequence function
