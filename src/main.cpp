@@ -272,9 +272,6 @@ void setupPins() {
 
     digitalWrite(X_SLEEP_PIN, LOW);
     digitalWrite(Y_SLEEP_PIN, LOW);
-
-    //stepperX.begin(MOTOR_RPM);
-    //stepperY.begin(MOTOR_RPM);
 }
 
 // Boot-up sequence function
@@ -341,16 +338,54 @@ void dropSequence() {
 
 
 void homeGantry() {
+
     // Wake up motors
     digitalWrite(X_SLEEP_PIN, HIGH);
     digitalWrite(Y_SLEEP_PIN, HIGH);
 
+    //start the clock for error timer
+    unsigned long start_time = millis();
+    unsigned long current_time = start_time;
+
     // Move to the left x limit
     while (digitalRead(LIMIT_X1)){
+
+        if (current_time - start_time >= limit_X1_timeout) {
+            Serial.println("!!!!!Error X1 limit switch timout!!!!!!!!");
+            Serial.print(current_time);
+            Serial.print("-");
+            Serial.print(start_time);
+            Serial.print("=");
+            Serial.println(current_time-start_time);
+            Serial.print("Limit is: ");
+            Serial.println(limit_X1_timeout);
+            error=true;
+            break;
+        }
+        current_time=millis();
         stepperX.move(MOTOR_STEPS/4);
     }
+
+    //Reset the error timer
+    start_time = millis();
+    current_time = start_time; 
+
     // Move to the back y limit
     while (digitalRead(LIMIT_Y1)) {
+
+        if (current_time - start_time >= limit_Y1_timeout) {
+            Serial.println("!!!!!Error Y1 limit switch timout!!!!!!!!");
+            Serial.print(current_time);
+            Serial.print("-");
+            Serial.print(start_time);
+            Serial.print("=");
+            Serial.println(current_time-start_time);
+            Serial.print("Limit is: ");
+            Serial.println(limit_Y1_timeout);
+            error=true;
+            break;
+        }
+        current_time=millis();
         stepperY.move(MOTOR_STEPS/4);
     }
 
