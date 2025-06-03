@@ -39,10 +39,16 @@
 #define MOTOR_RPM   600
 
 #define WINCH_SPEED 150
-#define WINCH_DROP_TIME 2500
-#define WINCH_UP_TIME WINCH_DROP_TIME+1000
+#define WINCH_DROP_TIME 1500
 
 #define RIGGING_VALUE 5 //0 to 10, the higher the number the more rigged the claw is. 
+
+bool error=false; //Global error state, if this is true, all other task are shut down until ou reboot.
+const long limit_X1_timeout = 5000; //If the Limit swith isn't activated in this amount of time, the machine will enter error state.
+const long limit_X2_timeout = 5000;
+const long limit_Y1_timeout = 5000;
+const long limit_Y2_timeout = 5000;
+long limit_Winch_timeout = WINCH_DROP_TIME+2000;
 
 DRV8834 stepperX(MOTOR_STEPS, X_DIR_PIN, X_STEP_PIN);
 DRV8834 stepperY(MOTOR_STEPS, Y_DIR_PIN, Y_STEP_PIN);
@@ -53,6 +59,7 @@ Servo myservo;
 
 TaskHandle_t TaskHandleJoystick;
 TaskHandle_t TaskHandleDropButton;
+TaskHandle_t TaskHandleError;
 
 bool dropActivated = false;
 typedef enum STATES {
@@ -77,6 +84,7 @@ void claw(STATES state);
 //tasks
 void TaskJoystick(void *pvParameters);
 void TaskDropButton(void *pvParameters);
+void TaskError(void *pvParameters);
 
 
 void setup() {
@@ -104,7 +112,15 @@ void setup() {
         &TaskHandleDropButton // Task handle
     );
 
-    bootUpSequence();
+        xTaskCreate(
+        TaskError,   // Task function
+        "ErrorTask", // Name of task
+        1000,             // Stack size (bytes)
+        NULL,             // Parameter to pass
+        3,                // Task priority
+        &TaskHandleError // Task handle
+    );
+
     vTaskStartScheduler();
 }
 
@@ -117,7 +133,8 @@ void loop() {
 
 // Task to handle joystick input and move steppers
 void TaskJoystick(void *pvParameters) {
-
+    
+    bootUpSequence();
     unsigned long previousMillis = 0;  // Stores last time the position was printed
     const long interval = 10000;  // Interval for position output (1000 ms = 1 second
 
@@ -134,6 +151,7 @@ void TaskJoystick(void *pvParameters) {
         bool x2LimitState=1;
         bool y1LimitState=1;
         bool y2LimitState=1;
+        bool winchLimitState=1;
 
         //read the joystick and limit switches
         upState=digitalRead(JOYSTICK_UP_PIN);
@@ -144,6 +162,7 @@ void TaskJoystick(void *pvParameters) {
         x2LimitState=(digitalRead(LIMIT_X2));
         y1LimitState=(digitalRead(LIMIT_Y1));
         y2LimitState=(digitalRead(LIMIT_Y2));
+        winchLimitState=(digitalRead(LIMIT_WINCH));
 
         unsigned long currentMillis = millis();
 
@@ -165,7 +184,9 @@ void TaskJoystick(void *pvParameters) {
             Serial.print(" X Limit Left: ");
             Serial.print(x1LimitState);
             Serial.print(" X limit right: ");
-            Serial.println(x2LimitState);
+            Serial.print(x2LimitState);
+            Serial.print(" Winch Limit: ");
+            Serial.println(winchLimitState);
 
             previousMillis = currentMillis;
 
@@ -216,6 +237,19 @@ void TaskDropButton(void *pvParameters) {
     }
 }
 
+// Task to handle Errors
+void TaskError(void *pvParameters) {
+    for (;;) {
+        if (error==true) {
+            Serial.println("!!!!!!!!!!!!!Error State detected suspending all tasks!!!!!!!!!!!!");
+            Serial.println("!!!!!Reboot required to clear error!!!!!!!!");
+            vTaskSuspendAll();
+        }
+        vTaskDelay(pdMS_TO_TICKS(100)); // Small delay to debounce switches
+        
+    }
+}
+
 
 
 //--------------Functions---------------
@@ -245,7 +279,16 @@ void setupPins() {
 
 // Boot-up sequence function
 void bootUpSequence() {
-    //homeWinch();
+
+    //change the winch timout to 10s just for bootup because spool might be completely unwound
+    long held_value=limit_Winch_timeout;
+    limit_Winch_timeout=10000;
+
+    homeWinch();
+
+    //put the winch timout limit back;
+    limit_Winch_timeout=held_value;
+
     homeGantry();
     claw(clawState=S_OPEN);
 }
@@ -318,24 +361,39 @@ void homeGantry() {
 
 void homeWinch(){
 
+    unsigned long start_time = millis();
+    unsigned long current_time = start_time;  // Stores last time the position was printed
+
     //raise the winch until it hit's the limit switch
     analogWrite(WINCH_IN1, 0);
     analogWrite(WINCH_IN2, 0);
 
-    //use time instead of limit switch
-    analogWrite(WINCH_IN2, 255);
-    vTaskDelay(pdMS_TO_TICKS(500));
-    analogWrite(WINCH_IN2, WINCH_SPEED);
-    delay(WINCH_UP_TIME);
+    //Raise the claw until it hits the limit switch
 
+    if(digitalRead(LIMIT_WINCH)==1){
+        analogWrite(WINCH_IN2, WINCH_SPEED);
+    }
 
-    //The claw isn't hitting the limit switch, commented out until it's resolved.
-    // analogWrite(WINCH_IN2, WINCH_SPEED);
+    while (digitalRead(LIMIT_WINCH))
+    {
+            
+        if (current_time - start_time >= limit_Winch_timeout) {
 
-    // while (digitalRead(LIMIT_WINCH))
-    // {
-    //     delay(100);
-    // }
+            Serial.println("!!!!!Error Winch limit switch timout!!!!!!!!");
+            Serial.print(current_time);
+            Serial.print("-");
+            Serial.print(start_time);
+            Serial.print("=");
+            Serial.println(current_time-start_time);
+            Serial.print("Limit is: ");
+            Serial.println(limit_Winch_timeout);
+            error=true;
+            break;
+        }
+        current_time=millis();
+        delay(100);
+
+    }
 
     analogWrite(WINCH_IN1, 0);
     analogWrite(WINCH_IN2, 0);
